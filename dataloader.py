@@ -2,8 +2,6 @@ from torch.utils.data import Dataset
 class Movie_data(Dataset):
     def __init__(self, X, y, user_feature_columns, item_feature_columns):
         super(Movie_data, self).__init__()
-        # 需要做一个处理，每一个X应该是userid, movieid, hist_movieid, hist_genres, hist_len, genres, gender, age, occ, zip
-        # 需要做一个重调
         X_user = {feature.name:X[feature.name] for feature in user_feature_columns}
         X_item = {feature.name:X[feature.name] for feature in item_feature_columns}
         data_X_user = []
@@ -21,7 +19,6 @@ class Movie_data(Dataset):
                     data_X_item[idx].append(data)
                 except:
                     data_X_item.append([data])
-
         self.X_user = data_X_user
         self.X_item = data_X_item
         self.y = y
