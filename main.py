@@ -10,10 +10,11 @@ from dataloader import Movie_data
 from torch.utils.data import DataLoader
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
+# data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
+data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
 sparse_features = ["movie_id", "user_id", "gender", "age", "occupation", "zip", "genres"]   # 对这些进行一个稀疏化
 SEQ_LEN = 50
-negsample = 10
+negsample = 5
 embedding_dim = 32
 
 # 1.Label Encoding for sparse features,and process sequence features with `gen_date_set` and `gen_model_input`
@@ -53,8 +54,8 @@ test_dataset = Movie_data(test_X, test_y, user_feature_columns, item_feature_col
 trian_len = len(train_dataset)
 test_len = len(test_dataset)
 
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True, num_workers=8)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False, num_workers=8)
+train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=8)
+test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=8)
 
 lr = 1e-4
 l2_coff = 1e-5
