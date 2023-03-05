@@ -1,3 +1,6 @@
+import torch
+import numpy as np
+from torch import cuda
 from collections import namedtuple
 DEFAULT_GROUP_NAME = "default_group"
 
@@ -78,7 +81,7 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
         # 针对这个pos_list做一个负采样
         if negsample > 0:
             candidate_set = list(set(item_ids) - set(pos_list))
-            neg_list = np.random.choice(candidate_set, size=len(pos_list) * negsample, replace=True)
+            neg_list = np.random.choice(candidate_set, size=len(pos_list) * (negsample+1), replace=True)
         
         for i in range(1, len(pos_list)):
             hist = pos_list[:i]
@@ -98,8 +101,11 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
             else:
                 # test:user_id, 最后一个itemid, 1, 其他一致
                 test_set.append((reviewerID, pos_list[i], 1, hist[::-1][:seq_len], seq_len, genres_hist[::-1][:seq_len],
-                                 genres_list[i],
-                                 rating_list[i]))
+                                 genres_list[i], rating_list[i]))
+                # 整个负的来进行对比
+                test_set.append((reviewerID, neg_list[i * negsample + negi+1], 0, hist[::-1][:seq_len], seq_len, genres_hist[::-1][:seq_len],
+                                 genres_list[i], rating_list[i]))
+
     
     print(f'train data size is {len(train_set)}, test data size is {len(test_set)}')
     return train_set, test_set
@@ -156,10 +162,16 @@ def gen_model_input(train_set, user_profile, seq_max_len):
     return train_X, train_y
 
 # ======================= metrice =======================
-def Precision(y_hat, y, probability):
+def Precision(y_hat, y, probability=0.5):
     pred_y = y_hat > probability
     return (pred_y == y).sum()
 
+# ======================= seed =======================
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    cuda.manual_seed(seed)
+    cuda.manual_seed_all(seed)
 
 
 

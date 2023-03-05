@@ -39,30 +39,27 @@ class DSSM(nn.Module):
             nn.Dropout(dnn_dropout),
             nn.Linear(item_dnn_hidden_units[0], item_dnn_hidden_units[1]),
         )
-        #TODO L2正则化
+        #TODO L2正则化,L2正则化可以被weight_decay所代替。
 
     def forward(self, X_user, X_item):
         # 输入的x的模式是 (batch, user_feature), (batch, item_feature)
         # 将对应的部分转化成未对应的embedding
-        ##? 但是从这个意义上，hist_movieid 和 hist_genres 和应该使用item的DNN来进行提取，但是在这里，我们直接放在userDMM中进行。
+        ##? 但是从这个意义上，hist_movieid 和 hist_genres 应该使用item的DNN来进行提取对应的，但是在这里，我们直接放在userDMM中当做历史信息提取。
+        ##? 这部分计算量可能会比较大，导致模型运行速度比较小。
         user_emb = []
         length = X_user[0].size(0)
         for idx, temp in enumerate(self.user_feature_columns):
             if isinstance(temp, SparseFeat):
                 user_emb.append(self.embedding_dict[temp.name].weight[X_user[idx]]) # 128 * dim
             else:
-                user_hist_emb = []
                 name = temp.name.lstrip('hist_')
-                for hist_list_idx in X_user[idx]:
-                    user_hist_emb.append(self.embedding_dict[name].weight[hist_list_idx.long().unsqueeze(0)])
+                user_hist_emb = [self.embedding_dict[name].weight[hist_list_idx.long().unsqueeze(0)] for hist_list_idx in X_user[idx]]
                 user_hist_emb = torch.cat(user_hist_emb, dim=0).reshape(length, -1)
                 user_emb.append(user_hist_emb)
         user_emb = torch.cat(user_emb, dim=1)
         
         ## item
-        item_emb = []
-        for idx, temp in enumerate(self.item_feature_columns):
-            item_emb.append(self.embedding_dict[temp.name].weight[X_item[idx]])
+        item_emb = [self.embedding_dict[temp.name].weight[X_item[idx]] for idx, temp in enumerate(self.item_feature_columns)]
         item_emb = torch.cat(item_emb, dim=1)
 
         #使用对应的DNN进行语义提取
