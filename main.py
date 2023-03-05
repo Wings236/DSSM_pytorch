@@ -10,11 +10,11 @@ from torch import optim, nn
 from dataloader import Movie_data
 from torch.utils.data import DataLoader
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 # data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
 data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
 sparse_features = ["movie_id", "user_id", "gender", "age", "occupation", "zip", "genres"]   # 对这些进行一个稀疏化
-SEQ_LEN = 30
+SEQ_LEN = 50
 negsample = 5
 embedding_dim = 32
 seed = 2023
@@ -60,16 +60,17 @@ test_len = len(test_dataset)
 train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True) #? 计算的瓶颈在于模型本身对数据的操作
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-lr = 1e-4
+lr = 1e-3
 l2_coff = 1e-5
+drop_rate = 0.25
 loss_function = nn.BCELoss()
-model = DSSM(user_feature_columns, item_feature_columns).to(device)
+model = DSSM(user_feature_columns, item_feature_columns, dnn_dropout=drop_rate).to(device)
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2_coff)
 
 num_epoch = 30
 early_stopping = 5
 patience = 0
-best_test_loss = np.inf
+best_test_AUC = 0.0
 
 # 可以把CTR看做是二分类，看哪个概率大做哪个行为
 
@@ -109,18 +110,18 @@ for epoch in range(num_epoch):
         test_prec+= Precision(y_hat.cpu(), y)/test_len
     test_AUC = roc_auc_score(test_true_y, test_pred_y)
 
-    if best_test_loss > test_loss:
+    if best_test_AUC < test_AUC:
         print('find the better result')
         best_test_loss = test_loss
         best_prec = test_prec
-        best_auc = test_AUC
+        best_test_AUC = test_AUC
         patience = 0
     print(f'EPOCH:{epoch+1}({patience}/{early_stopping})')
     print(f'trian loss:{train_loss:.4f}, precision:{train_prec:.4f}, AUC:{train_AUC:.4f}')
     print(f'test loss:{test_loss:.4f}, precision:{test_prec:.4f}, AUC:{test_AUC:.4f}')
     if patience >= early_stopping:
         print('res will not be better, training is done.')
-        print(f'the best res is, loss :{best_test_loss:.4f}, precision:{best_prec:.4f}, AUC:{best_auc:.4f}')
+        print(f'the best res is, loss :{best_test_loss:.4f}, precision:{best_prec:.4f}, AUC:{best_test_AUC:.4f}')
         break
     
     patience += 1
