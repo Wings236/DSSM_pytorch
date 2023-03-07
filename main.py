@@ -1,19 +1,18 @@
 import pandas as pd
-import numpy as np
 import torch
 from tqdm import tqdm
-from utils import gen_data_set, gen_model_input, SparseFeat, VarLenSparseFeat, Precision, set_seed
+from utils import gen_data_set, gen_model_input, SparseFeat, VarLenSparseFeat, set_seed, Annoy, Test
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import roc_auc_score
 from model import DSSM
 from torch import optim, nn
 from dataloader import Movie_data
 from torch.utils.data import DataLoader
 
-device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
+cpu_id = 4
+device = torch.device(f'cuda:{cpu_id}' if torch.cuda.is_available() else 'cpu')
 # data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
 data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
-sparse_features = ["movie_id", "user_id", "gender", "age", "occupation", "zip", "genres"]   # 对这些进行一个稀疏化
+sparse_features = ["movie_id", "user_id", "gender", "age", "occupation", "zip", "genres"]
 SEQ_LEN = 50
 negsample = 5
 embedding_dim = 32
@@ -31,7 +30,6 @@ for feature in sparse_features:
 user_profile = data[["user_id", "gender", "age", "occupation", "zip"]].drop_duplicates('user_id')
 item_profile = data[["movie_id", "genres"]].drop_duplicates('movie_id')
 user_profile.set_index("user_id", inplace=True)
-# user_item_list = data.groupby("user_id")['movie_id'].apply(list)    # 通过user来进行分类，但是似乎没有用到
 train_set, test_set = gen_data_set(data, SEQ_LEN, negsample)        # 负采样同时按照时间序列划分数据集
 train_X, train_y = gen_model_input(train_set, user_profile, SEQ_LEN)
 test_X, test_y = gen_model_input(test_set, user_profile, SEQ_LEN)
@@ -56,6 +54,7 @@ train_dataset = Movie_data(train_X, train_y, user_feature_columns, item_feature_
 test_dataset = Movie_data(test_X, test_y, user_feature_columns, item_feature_columns)
 train_len = len(train_dataset)
 test_len = len(test_dataset)
+all_item = [item_profile.values[:,idx] for idx in range(len(item_feature_columns))]
 
 train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True) #? 计算的瓶颈在于模型本身对数据的操作
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
@@ -68,19 +67,16 @@ model = DSSM(user_feature_columns, item_feature_columns, dnn_dropout=drop_rate).
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=l2_coff)
 
 num_epoch = 30
+topks = [20, 50]
 early_stopping = 5
 patience = 0
-best_test_AUC = 0.0
-
-# 可以把CTR看做是二分类，看哪个概率大做哪个行为
+best_test_recall = 0
+# 换成召回模式
 
 for epoch in range(num_epoch):
     # 训练
     model.train()
-    train_pred_y = []
-    train_true_y = []
-    train_prec = 0.0
-    train_loss, train_prec = 0.0, 0.0
+    train_loss = 0.0
     for X_user, X_item, y in tqdm(train_loader, ncols=80):
         optimizer.zero_grad()
         y_hat = model(X_user, X_item)
@@ -88,40 +84,40 @@ for epoch in range(num_epoch):
         loss.backward()
         optimizer.step()
         train_loss += loss.cpu().item()/train_len
-        train_pred_y.extend(y_hat.cpu().detach().numpy())
-        train_true_y.extend(y.numpy())
-        train_prec+= Precision(y_hat.cpu(), y)/train_len
-        # print(train_pred_y, train_true_y)
-    train_AUC = roc_auc_score(train_true_y, train_pred_y)
 
     # 验证
     model.eval()
-    test_pred_y = []
-    test_true_y = []
-    test_prec = 0.0
-    test_loss, test_prec = 0.0, 0.0
+    annoy = Annoy('angular')
+    item_embedding = model.item_embedding(all_item).cpu()
+    annoy.item_embedding_store(all_item, item_embedding)
+    pred_y, test_y = [], []
     for X_user, X_item, y in tqdm(test_loader, ncols=80):
-        y_hat = model(X_user, X_item)
+        # 针对每一个X_user进行搜索
         with torch.no_grad():
-            loss = loss_function(y_hat.cpu(), y.float())
-        test_loss += loss.cpu().item()/test_len
-        test_pred_y.extend(y_hat.cpu().detach().numpy())
-        test_true_y.extend(y)
-        test_prec+= Precision(y_hat.cpu(), y)/test_len
-    test_AUC = roc_auc_score(test_true_y, test_pred_y)
-
-    if best_test_AUC < test_AUC:
+            user_embedding = model.user_mebedding(X_user).cpu()
+        pred_y.extend([annoy.search_item(user_emb, top_k=max(topks)) for user_emb in user_embedding])
+        test_y.extend([[item_id]for item_id in X_item[0].numpy()])
+    # 得到每一个指标
+    res = Test(pred_y, test_y, topks=topks)    # 计算对应的指标
+    for temp_res in res:
+        print(temp_res)
+        
+    if best_test_recall < res[-1][f'recall@{topks[-1]}']:
         print('find the better result')
-        best_test_loss = test_loss
-        best_prec = test_prec
-        best_test_AUC = test_AUC
+        best_res = res
+        best_test_recall = res[-1][f'recall@{topks[-1]}']
         patience = 0
+    
     print(f'EPOCH:{epoch+1}({patience}/{early_stopping})')
-    print(f'trian loss:{train_loss:.4f}, precision:{train_prec:.4f}, AUC:{train_AUC:.4f}')
-    print(f'test loss:{test_loss:.4f}, precision:{test_prec:.4f}, AUC:{test_AUC:.4f}')
+    print(f'trian loss:{train_loss:.4f}')
+    for idx, topk in enumerate(topks):
+        print(f'recall@{topk}:{res[idx][f"recall@{topk}"]}, ndcg@{topk}:{res[idx][f"ndcg@{topk}"]}')
+
     if patience >= early_stopping:
         print('res will not be better, training is done.')
-        print(f'the best res is, loss :{best_test_loss:.4f}, precision:{best_prec:.4f}, AUC:{best_test_AUC:.4f}')
+        print(f'the best res is')
+        for temp_res in best_res:
+            print(temp_res)
         break
     
     patience += 1

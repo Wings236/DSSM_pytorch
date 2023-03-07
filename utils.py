@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from torch import cuda
+from annoy import AnnoyIndex
 from collections import namedtuple
 DEFAULT_GROUP_NAME = "default_group"
 
@@ -72,6 +73,7 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
     item_id_genres_map = dict(zip(data['movie_id'].values, data['genres'].values)) 
     train_set = []
     test_set = []
+    all_item = []
     for reviewerID, hist in data.groupby('user_id'):
         # 每一个按照user_id进行拆分，然后得到每一个user_id对应的movie_id，genres和rating的列表。
         pos_list = hist['movie_id'].tolist()
@@ -92,8 +94,7 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
                 # pos:user_id，pos_id，标签1or0，对hist倒着排，然后取前面[0,i-1]个，列表长度，流派同理，然后是当前的特征genres和rating
                 train_set.append((
                     reviewerID, pos_list[i], 1, hist[::-1][:seq_len], seq_len, genres_hist[::-1][:seq_len],
-                    genres_list[i],
-                    rating_list[i]))
+                    genres_list[i], rating_list[i]))
                 # neg:user_id, neg_id,标签0，然后把之前的都放进来，就是之前的序列这样负采样不行
                 for negi in range(negsample):
                     train_set.append((reviewerID, neg_list[i * negsample + negi], 0, hist[::-1][:seq_len], seq_len,
@@ -101,9 +102,6 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
             else:
                 # test:user_id, 最后一个itemid, 1, 其他一致
                 test_set.append((reviewerID, pos_list[i], 1, hist[::-1][:seq_len], seq_len, genres_hist[::-1][:seq_len],
-                                 genres_list[i], rating_list[i]))
-                # 整个负的来进行对比
-                test_set.append((reviewerID, neg_list[i * negsample + negi+1], 0, hist[::-1][:seq_len], seq_len, genres_hist[::-1][:seq_len],
                                  genres_list[i], rating_list[i]))
 
     
@@ -161,10 +159,75 @@ def gen_model_input(train_set, user_profile, seq_max_len):
     # 输出就是X和y
     return train_X, train_y
 
-# ======================= metrice =======================
+# ======================= TEST metrice =======================
 def Precision(y_hat, y, probability=0.5):
     pred_y = y_hat > probability
     return (pred_y == y).sum()
+
+class Annoy:
+    def __init__(self, metric='angular', n_tree=10, search_k=-1):
+        self._n_tree = n_tree
+        self._search_k = search_k
+        self._metric=metric
+    
+    def item_embedding_store(self, all_item, item):
+        self._annoy = AnnoyIndex(item.shape[1], metric='euclidean')
+        # print(item.shape[1])
+        for i, item_embedding in enumerate(item):
+            self._annoy.add_item(all_item[0][i], item_embedding.tolist())
+        self._annoy.build(self._n_tree)
+    
+    def set_query_arguments(self, search_k):
+        self._search_k = search_k
+
+    def search_item(self, user_emb, top_k):
+        return self._annoy.get_nns_by_vector(user_emb, top_k, self._search_k)
+
+
+
+def Test(pred_y, true_y, topks=[10]):
+    assert len(pred_y) == len(true_y)
+    res = []
+    for idx in range(len(topks)):
+        ndcgs = 0
+        mrrs = 0
+        hits = 0
+        precisions = 0
+        recalls = 0
+        gts = 0
+        for i in range(len(true_y)):
+            if len(true_y[i]) != 0:
+                mrr_tmp = 0
+                mrr_flag = True
+                hit_tmp = 0
+                dcg_tmp = 0
+                idcg_tmp = 0 
+                for j in range(topks[idx]):
+                    if pred_y[i][j] in true_y[i]:
+                        hit_tmp += 1.       # 看有多少个击中
+                        if mrr_flag:
+                            mrr_flag = False
+                            mrr_tmp = 1. / (1 + j)
+                        dcg_tmp += 1. / (np.log2(j + 2))
+                    if j < len(true_y[i]):
+                        idcg_tmp += 1. / (np.log2(j + 2))
+                gts += len(true_y[i])
+                hits += hit_tmp
+                mrrs += mrr_tmp
+                recalls += hit_tmp / len(true_y[i])
+                precisions += hit_tmp / topks[idx]
+                if idcg_tmp != 0:
+                    ndcgs += dcg_tmp / idcg_tmp
+        hit = round(hits / gts, 4)
+        mrr = round(mrrs / len(pred_y), 4)
+        recall = round(recalls / len(pred_y), 4)
+        precision = round(precisions / len(pred_y), 4)
+        ndcg = round(ndcgs / len(pred_y), 4)
+        
+        res.append({f'hit@{topks[idx]}':hit, f'mrr@{topks[idx]}':mrr, f'recall@{topks[idx]}':recall, f'precision@{topks[idx]}':precision, f'ndcg@{topks[idx]}':ndcg})
+    return res
+
+
 
 # ======================= seed =======================
 def set_seed(seed):

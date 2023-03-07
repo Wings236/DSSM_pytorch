@@ -40,12 +40,8 @@ class DSSM(nn.Module):
             nn.Linear(item_dnn_hidden_units[0], item_dnn_hidden_units[1]),
         )
         #TODO L2正则化,L2正则化可以被weight_decay所代替。
-
-    def forward(self, X_user, X_item):
-        # 输入的x的模式是 (batch, user_feature), (batch, item_feature)
-        # 将对应的部分转化成未对应的embedding
-        ##? 但是从这个意义上，hist_movieid 和 hist_genres 应该使用item的DNN来进行提取对应的，但是在这里，我们直接放在userDMM中当做历史信息提取。
-        ##? 这部分计算量可能会比较大，导致模型运行速度比较小。
+    
+    def user_mebedding(self, X_user):
         user_emb = []
         length = X_user[0].size(0)
         for idx, temp in enumerate(self.user_feature_columns):
@@ -57,15 +53,28 @@ class DSSM(nn.Module):
                 user_hist_emb = torch.cat(user_hist_emb, dim=0).reshape(length, -1)
                 user_emb.append(user_hist_emb)
         user_emb = torch.cat(user_emb, dim=1)
-        
+        return self.User_DNN(user_emb)
+    
+    def item_embedding(self, X_item):
         ## item
         item_emb = [self.embedding_dict[temp.name].weight[X_item[idx]] for idx, temp in enumerate(self.item_feature_columns)]
         item_emb = torch.cat(item_emb, dim=1)
+        return self.Item_DNN(item_emb)
+    
+    def forward(self, X_user, X_item):
+        # 输入的x的模式是 (batch, user_feature), (batch, item_feature)
+        # 将对应的部分转化成未对应的embedding
+        ##? 但是从这个意义上，hist_movieid 和 hist_genres 应该使用item的DNN来进行提取对应的，但是在这里，我们直接放在userDMM中当做历史信息提取。
+        ##? 这部分计算量可能会比较大，导致模型运行速度比较小。
 
         #使用对应的DNN进行语义提取
-        user_out_emb = self.User_DNN(user_emb)
-        item_out_emb = self.Item_DNN(item_emb)
+        user_out_emb = self.user_mebedding(X_user)
+        item_out_emb = self.item_embedding(X_item)
 
         #做内积，使用SIGMOD转换成点击概率
         return torch.sigmoid((user_out_emb * item_out_emb).sum(dim=1))
+    
+    
+    
+
 

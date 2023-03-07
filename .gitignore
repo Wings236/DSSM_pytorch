@@ -1,3 +1,5 @@
 *.pyc
 __pychche__/
+
 *.ipynb
+.ipynb_checkpoints
