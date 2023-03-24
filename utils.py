@@ -174,7 +174,7 @@ class Annoy:
         self._annoy = AnnoyIndex(item.shape[1], metric='euclidean')
         # print(item.shape[1])
         for i, item_embedding in enumerate(item):
-            self._annoy.add_item(all_item[0][i], item_embedding.tolist())
+            self._annoy.add_item(all_item[i, 0].cpu().item(), item_embedding.tolist())
         self._annoy.build(self._n_tree)
     
     def set_query_arguments(self, search_k):

@@ -1,6 +1,7 @@
 import pandas as pd
 import torch
 from tqdm import tqdm
+from time import time
 from utils import gen_data_set, gen_model_input, SparseFeat, VarLenSparseFeat, set_seed, Annoy, Test
 from sklearn.preprocessing import LabelEncoder
 from model import DSSM
@@ -8,7 +9,7 @@ from torch import optim, nn
 from dataloader import Movie_data
 from torch.utils.data import DataLoader
 
-cpu_id = 4
+cpu_id = 0
 device = torch.device(f'cuda:{cpu_id}' if torch.cuda.is_available() else 'cpu')
 # data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
 data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
@@ -49,16 +50,27 @@ user_feature_columns = [SparseFeat('user_id', feature_max_idx['user_id'], embedd
 item_feature_columns = [SparseFeat('movie_id', feature_max_idx['movie_id'], embedding_dim),
                         SparseFeat('genres', feature_max_idx['genres'], embedding_dim)
                         ]
+# 按照user emb + item emb 重新映射每一个下标
+mapping_idx = dict()
+total_feat = user_feature_columns + item_feature_columns
+new_idx_start = 0
+for feat in total_feat:
+    if isinstance(feat, SparseFeat):
+        mapping_idx[feat.name] = new_idx_start
+        new_idx_start += feat.vocabulary_size
 
-train_dataset = Movie_data(train_X, train_y, user_feature_columns, item_feature_columns)
-test_dataset = Movie_data(test_X, test_y, user_feature_columns, item_feature_columns)
+print("数据开始载入")
+load_time = time()
+train_dataset = Movie_data(train_X, train_y, user_feature_columns, item_feature_columns, mapping_idx)
+test_dataset = Movie_data(test_X, test_y, user_feature_columns, item_feature_columns, mapping_idx)
 train_len = len(train_dataset)
 test_len = len(test_dataset)
-all_item = [item_profile.values[:,idx] for idx in range(len(item_feature_columns))]
 
-train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True) #? 计算的瓶颈在于模型本身对数据的操作
+all_item = torch.tensor([[value['movie_id'] + mapping_idx['movie_id'],value['genres'] + mapping_idx['genres']] for value in item_profile.iloc]).to(device)
+train_loader = DataLoader(train_dataset, batch_size=4096, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-
+print(f"训练集总数：{train_len}, 测试集总数：{test_len}")
+print(f"数据载入完成, 用时{time()-load_time:.2f}s")
 lr = 1e-3
 l2_coff = 1e-5
 drop_rate = 0.25
@@ -71,8 +83,7 @@ topks = [20, 50]
 early_stopping = 5
 patience = 0
 best_test_recall = 0
-# 换成召回模式
-
+# 召回
 for epoch in range(num_epoch):
     # 训练
     model.train()
@@ -96,7 +107,7 @@ for epoch in range(num_epoch):
         with torch.no_grad():
             user_embedding = model.user_mebedding(X_user).cpu()
         pred_y.extend([annoy.search_item(user_emb, top_k=max(topks)) for user_emb in user_embedding])
-        test_y.extend([[item_id]for item_id in X_item[0].numpy()])
+        test_y.extend([[item_id]for item_id in X_item[:,0].numpy()])
     # 得到每一个指标
     res = Test(pred_y, test_y, topks=topks)    # 计算对应的指标
     for temp_res in res:
