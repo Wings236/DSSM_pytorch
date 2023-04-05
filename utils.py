@@ -75,12 +75,20 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
     test_set = []
     all_item = []
     for reviewerID, hist in data.groupby('user_id'):
-        # 每一个按照user_id进行拆分，然后得到每一个user_id对应的movie_id，genres和rating的列表。
+        # 按照user_id进行拆分，得到每一个user_id对应的movie_id，genres和rating的列表。
         pos_list = hist['movie_id'].tolist()
         genres_list = hist['genres'].tolist()
         rating_list = hist['rating'].tolist()
 
-        # 针对这个pos_list做一个负采样
+        # 对pos_list做负采样
+        # neg_list = []
+        # for i in range(len(pos_list) * negsample):
+        #     while True:
+        #         neg_idx = np.random.choice(item_ids, 1)
+        #         if (neg_idx not in neg_list) and (neg_idx not in pos_list):
+        #             break
+        #     neg_list.append(neg_idx.tolist()[0])
+            
         if negsample > 0:
             candidate_set = list(set(item_ids) - set(pos_list))
             neg_list = np.random.choice(candidate_set, size=len(pos_list) * (negsample+1), replace=True)
@@ -88,7 +96,7 @@ def gen_data_set(data, seq_max_len=50, negsample=0):
         for i in range(1, len(pos_list)):
             hist = pos_list[:i]
             genres_hist = genres_list[:i]
-            seq_len = min(i, seq_max_len)   # 看当前的列表长度，#? 但是实际后面不会用到
+            seq_len = min(i, seq_max_len)
 
             if i != len(pos_list) - 1:
                 # pos:user_id，pos_id，标签1or0，对hist倒着排，然后取前面[0,i-1]个，列表长度，流派同理，然后是当前的特征genres和rating
@@ -132,17 +140,17 @@ def pad_sequences(sequences, maxlen=None, dtype='int32', padding='pre', truncati
             else:
                 raise ValueError('padding error')
             res[idx] = np.array(seq)
-    return res
+    return res.tolist()
 
 def gen_model_input(train_set, user_profile, seq_max_len):
     # 对数据集的信息进行拆解
-    train_uid = np.array([line[0] for line in train_set])
-    train_iid = np.array([line[1] for line in train_set])
-    train_y = np.array([line[2] for line in train_set])
+    train_uid = [line[0] for line in train_set]
+    train_iid = [line[1] for line in train_set]
+    train_y = [line[2] for line in train_set]
     train_seq = [line[3] for line in train_set]
-    train_hist_len = np.array([line[4] for line in train_set])
+    train_hist_len = [line[4] for line in train_set]
     train_seq_genres = [line[5] for line in train_set]
-    train_genres = np.array([line[6] for line in train_set])
+    train_genres = [line[6] for line in train_set]
     
     # 让相关的信息序列长度保持一致
     train_seq_pad = pad_sequences(train_seq, maxlen=seq_max_len, padding='post', truncating='post', value=0)
@@ -154,7 +162,7 @@ def gen_model_input(train_set, user_profile, seq_max_len):
     
     # 再增加用户本身的属性，所以前者都是交互的信息
     for key in ["gender", "age", "occupation", "zip"]:
-        train_X[key] = user_profile.loc[train_X['user_id']][key].values
+        train_X[key] = user_profile.loc[train_X['user_id']][key].values.tolist()
     
     # 输出就是X和y
     return train_X, train_y
