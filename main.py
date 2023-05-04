@@ -12,7 +12,8 @@ from torch.utils.data import DataLoader
 cpu_id = 0
 device = torch.device(f'cuda:{cpu_id}' if torch.cuda.is_available() else 'cpu')
 # data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
-data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
+# data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
+data = pd.read_csvdata = pd.read_csv("./data/ml-1m.txt")
 sparse_features = ["movie_id", "user_id", "gender", "age", "occupation", "zip", "genres"]
 SEQ_LEN = 50
 negsample = 5

@@ -3,3 +3,8 @@ __pychche__/
 
 *.ipynb
 .ipynb_checkpoints
+
+*.dat
+ml-1m.txt
+
+wechat
