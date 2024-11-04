@@ -9,8 +9,8 @@ from torch import optim, nn
 from dataloader import Movie_data
 from torch.utils.data import DataLoader
 
-cpu_id = 0
-device = torch.device(f'cuda:{cpu_id}' if torch.cuda.is_available() else 'cpu')
+gpu_id = 0
+device = torch.device(f'cuda:{gpu_id}' if torch.cuda.is_available() else 'cpu')
 # data = pd.read_csvdata = pd.read_csv("./data/movielens_sample.txt")
 # data = pd.read_csvdata = pd.read_csv("./data/ml-100k.txt")
 data = pd.read_csvdata = pd.read_csv("./data/ml-1m.txt")
